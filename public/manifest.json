@@ -1,0 +1,52 @@
+{
+  "name": "FundFlow Africa",
+  "short_name": "FundFlow",
+  "description": "Transparent blockchain-secured NGO funding platform with mobile money integration for African communities",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#ea580c",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "social", "utilities"],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "View Projects",
+      "short_name": "Projects",
+      "description": "Browse active NGO projects",
+      "url": "/#projects",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Mobile Money",
+      "short_name": "Pay",
+      "description": "Donate via mobile money",
+      "url": "/#mobile-money",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

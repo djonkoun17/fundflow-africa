@@ -158,7 +158,7 @@ export const ProjectGrid: React.FC<ProjectGridProps> = ({ projects, onProjectSel
 
                   {/* View Project Button */}
                   <button className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-300 flex items-center justify-center space-x-2 group-hover:shadow-lg">
-                    <span>View Project</span>
+                    <span>Donate Now</span>
                     <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </button>
                 </div>

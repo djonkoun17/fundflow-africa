@@ -62,17 +62,20 @@ serve(async (req) => {
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: paymentMethod === 'mobile_money' 
-        ? ['card'] // For now, use card as fallback for mobile money
-        : ['card'],
+      payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
             currency: currency.toLowerCase(),
             product_data: {
               name: `Donation to: ${project.title}`,
-              description: `Supporting ${project.title} - ${mobileMoneyProvider || 'Card Payment'}`,
+              description: `Supporting ${project.title} in ${project.region_id} - ${mobileMoneyProvider || 'Card Payment'}`,
               images: project.images?.length > 0 ? [project.images[0]] : [],
+              metadata: {
+                projectId,
+                category: project.category,
+                region: project.region_id,
+              },
             },
             unit_amount: Math.round(amount * 100), // Convert to cents
           },
@@ -82,14 +85,23 @@ serve(async (req) => {
       mode: 'payment',
       success_url: `${req.headers.get('origin')}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get('origin')}/cancel`,
+      automatic_tax: { enabled: false },
       customer_email: donorEmail,
+      billing_address_collection: 'auto',
+      shipping_address_collection: {
+        allowed_countries: ['KE', 'NG', 'GH', 'ZA', 'UG', 'TZ', 'RW', 'SN', 'CI', 'MA'],
+      },
       metadata: {
         projectId,
         milestoneId: milestoneId || '',
         paymentMethod,
         mobileMoneyProvider: mobileMoneyProvider || '',
         blockchainIntegration: 'pending', // Flag for blockchain processing
+        africanDonation: 'true',
+        platform: 'fundflow-africa',
       },
+      locale: 'auto',
+      allow_promotion_codes: true,
     })
 
     // Record the payment intent in Supabase
@@ -102,6 +114,7 @@ serve(async (req) => {
         currency: currency,
         payment_method: paymentMethod,
         status: 'pending',
+        donor_address: donorEmail || 'anonymous',
         offline: false,
         stripe_payment_intent_id: session.id,
         mobile_money_provider: mobileMoneyProvider,
@@ -109,10 +122,15 @@ serve(async (req) => {
 
     if (insertError) {
       console.error('Error recording transaction:', insertError)
+      // Don't fail the checkout creation, just log the error
     }
 
     return new Response(
-      JSON.stringify({ sessionId: session.id }),
+      JSON.stringify({ 
+        sessionId: session.id,
+        url: session.url,
+        paymentIntentId: session.payment_intent,
+      }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }

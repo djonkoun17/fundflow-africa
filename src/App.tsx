@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'react-hot-toast';
+import { StripeProvider } from './components/payments/StripeProvider';
 import { Header } from './components/layout/Header';
 import { HeroSection } from './components/hero/HeroSection';
 import { ImpactDashboard } from './components/impact/ImpactDashboard';
@@ -212,8 +213,10 @@ function AppContent() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
-      <ReactQueryDevtools initialIsOpen={false} />
+      <StripeProvider>
+        <AppContent />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </StripeProvider>
     </QueryClientProvider>
   );
 }

@@ -44,18 +44,22 @@ serve(async (req) => {
         return new Response('Missing project ID', { status: 400 })
       }
 
+      console.log('Processing successful payment for project:', metadata.projectId)
+      console.log('Payment amount:', session.amount_total)
+      console.log('Customer email:', session.customer_details?.email)
+
       // Update transaction status in Supabase
       const { error: updateError } = await supabaseClient
         .from('donation_transactions')
         .update({
           status: 'completed',
-          tx_hash: `stripe_${session.id}`, // Temporary until blockchain integration
+          tx_hash: `stripe_${session.payment_intent}`,
+          donor_address: session.customer_details?.email || 'anonymous',
         })
         .eq('stripe_payment_intent_id', session.id)
 
       if (updateError) {
         console.error('Error updating transaction:', updateError)
-        return new Response('Database update failed', { status: 500 })
       }
 
       // Update project current amount
@@ -78,6 +82,19 @@ serve(async (req) => {
         if (projectUpdateError) {
           console.error('Error updating project amount:', projectUpdateError)
         }
+      }
+
+      // Update impact metrics
+      await updateImpactMetrics(supabaseClient, metadata.projectId, donationAmount, session.currency || 'usd')
+
+      // Send confirmation email/SMS (if configured)
+      if (session.customer_details?.email) {
+        await sendDonationConfirmation(
+          session.customer_details.email,
+          donationAmount,
+          metadata.projectId,
+          session.id
+        )
       }
 
       // TODO: BLOCKCHAIN INTEGRATION POINT
@@ -108,6 +125,20 @@ serve(async (req) => {
       */
 
       console.log(`Successfully processed donation for project ${metadata.projectId}`)
+      console.log(`Amount: $${donationAmount} | Session: ${session.id}`)
+    }
+
+    // Handle payment failures
+    if (event.type === 'checkout.session.expired' || event.type === 'payment_intent.payment_failed') {
+      const session = event.data.object as any
+      const sessionId = session.id || session.charges?.data?.[0]?.payment_intent
+
+      if (sessionId) {
+        await supabaseClient
+          .from('donation_transactions')
+          .update({ status: 'failed' })
+          .eq('stripe_payment_intent_id', sessionId)
+      }
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -125,3 +156,90 @@ serve(async (req) => {
     )
   }
 })
+
+async function updateImpactMetrics(
+  supabaseClient: any,
+  projectId: string,
+  amount: number,
+  currency: string
+) {
+  try {
+    // Get project details
+    const { data: project } = await supabaseClient
+      .from('projects')
+      .select('category, region_id')
+      .eq('id', projectId)
+      .single()
+
+    if (!project) return
+
+    // Get current metrics
+    const { data: metrics } = await supabaseClient
+      .from('african_impact_metrics')
+      .select('*')
+      .single()
+
+    if (metrics) {
+      const updates: any = {}
+      
+      // Update category-specific metrics
+      switch (project.category) {
+        case 'water':
+          updates.water_access_improved = (metrics.water_access_improved || 0) + Math.floor(amount * 2)
+          break
+        case 'education':
+          updates.schools_built = (metrics.schools_built || 0) + (amount > 1000 ? 1 : 0)
+          break
+        case 'health':
+          updates.health_clinics_supported = (metrics.health_clinics_supported || 0) + (amount > 5000 ? 1 : 0)
+          break
+        case 'agriculture':
+          updates.jobs_created = (metrics.jobs_created || 0) + Math.floor(amount / 100)
+          break
+        case 'infrastructure':
+          updates.communities_reached = (metrics.communities_reached || 0) + Math.floor(amount / 500)
+          break
+      }
+
+      // Update currency impact
+      const currencyImpact = metrics.local_currency_impact || {}
+      currencyImpact[currency.toUpperCase()] = (currencyImpact[currency.toUpperCase()] || 0) + amount
+      updates.local_currency_impact = currencyImpact
+
+      // Update projects by category
+      const projectsByCategory = metrics.projects_by_category || {}
+      projectsByCategory[project.category] = (projectsByCategory[project.category] || 0) + 1
+      updates.projects_by_category = projectsByCategory
+
+      await supabaseClient
+        .from('african_impact_metrics')
+        .update(updates)
+        .eq('id', metrics.id)
+    }
+  } catch (error) {
+    console.error('Error updating impact metrics:', error)
+  }
+}
+
+async function sendDonationConfirmation(
+  email: string,
+  amount: number,
+  projectId: string,
+  sessionId: string
+) {
+  try {
+    // In a real implementation, you would send an email via:
+    // - SendGrid
+    // - Mailgun  
+    // - AWS SES
+    // - Or Supabase Edge Function for email
+    
+    console.log(`Sending confirmation email to ${email}`)
+    console.log(`Donation: $${amount} to project ${projectId}`)
+    console.log(`Session: ${sessionId}`)
+    
+    // TODO: Implement actual email sending
+  } catch (error) {
+    console.error('Error sending confirmation email:', error)
+  }
+}

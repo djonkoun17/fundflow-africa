@@ -5,8 +5,12 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { mobileMoneyProviders } from '../../data/africanRegions';
 import { MobileMoneyProvider } from '../../types';
-import { useCreateStripeCheckout, useCreateDonationTransaction } from '../../hooks/usePayments';
+import { useCreateStripeCheckout } from '../../hooks/usePayments';
 import { useOffline } from '../../hooks/useOffline';
+import { StripeProvider } from '../payments/StripeProvider';
+import { PaymentForm } from '../payments/PaymentForm';
+import { PaymentSuccess } from '../payments/PaymentSuccess';
+import { stripePromise } from '../../lib/stripe';
 
 interface MobileMoneyHubProps {
   onPaymentMethodSelect: (provider: MobileMoneyProvider) => void;
@@ -21,10 +25,17 @@ export const MobileMoneyHub: React.FC<MobileMoneyHubProps> = ({
   const [selectedProvider, setSelectedProvider] = useState<MobileMoneyProvider | null>(null);
   const [donationAmount, setDonationAmount] = useState<string>('10');
   const [donorEmail, setDonorEmail] = useState<string>('');
+  const [donorName, setDonorName] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState<{
+    sessionId: string;
+    amount: number;
+    projectTitle: string;
+    transactionHash?: string;
+  } | null>(null);
   
   const createStripeCheckout = useCreateStripeCheckout();
-  const createDonationTransaction = useCreateDonationTransaction();
   const { isOffline, queueTransaction } = useOffline();
 
   const handleProviderSelect = (provider: MobileMoneyProvider) => {
@@ -43,44 +54,56 @@ export const MobileMoneyHub: React.FC<MobileMoneyHubProps> = ({
       return;
     }
 
-    setIsProcessing(true);
-
-    try {
-      const paymentData = {
+    if (isOffline) {
+      // Queue transaction for offline processing
+      queueTransaction({
+        projectId: selectedProjectId,
         amount: parseFloat(donationAmount),
         currency: 'USD',
-        projectId: selectedProjectId,
-        paymentMethod: 'mobile_money' as const,
-        mobileMoneyProvider: selectedProvider.name,
-        donorEmail: donorEmail || undefined
-      };
-
-      if (isOffline) {
-        // Queue transaction for offline processing
-        queueTransaction({
-          projectId: selectedProjectId,
-          amount: parseFloat(donationAmount),
-          currency: 'USD',
-          paymentMethod: 'mobile_money',
-          status: 'queued',
-          offline: true
-        });
-        
-        toast.success('Payment queued - will process when back online');
-        setDonationAmount('10');
-        setDonorEmail('');
-      } else {
-        // Process payment online via Stripe
-        await createStripeCheckout.mutateAsync(paymentData);
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-      toast.error('Payment failed. Please try again.');
-    } finally {
-      setIsProcessing(false);
+        paymentMethod: 'mobile_money',
+        status: 'queued',
+        offline: true
+      });
+      
+      toast.success('Payment queued - will process when back online');
+      setDonationAmount('10');
+      setDonorEmail('');
+      setDonorName('');
+    } else {
+      // Show payment form for online processing
+      setShowPaymentForm(true);
     }
   };
+
+  const handlePaymentSuccess = (sessionId: string) => {
+    setPaymentSuccess({
+      sessionId,
+      amount: parseFloat(donationAmount),
+      projectTitle: 'Selected Project', // You can get this from project data
+    });
+    setShowPaymentForm(false);
+    setDonationAmount('10');
+    setDonorEmail('');
+    setDonorName('');
+    setSelectedProvider(null);
+  };
+
+  const handlePaymentError = (error: string) => {
+    toast.error(error);
+    setShowPaymentForm(false);
+  };
+
+  const paymentData = {
+    amount: parseFloat(donationAmount),
+    currency: 'USD',
+    projectId: selectedProjectId || '',
+    paymentMethod: 'mobile_money' as const,
+    mobileMoneyProvider: selectedProvider?.name,
+    donorEmail: donorEmail || undefined,
+    donorName: donorName || undefined,
+  };
   return (
+    <StripeProvider>
     <section className="py-16 bg-gradient-to-br from-green-50 to-blue-50">
       <div className="container mx-auto px-4">
         <motion.div
@@ -181,6 +204,19 @@ export const MobileMoneyHub: React.FC<MobileMoneyHubProps> = ({
                 {/* Email Input */}
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={donorName}
+                    onChange={(e) => setDonorName(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    placeholder="Your name"
+                  />
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Email (Optional)
                   </label>
                   <input
@@ -232,19 +268,17 @@ export const MobileMoneyHub: React.FC<MobileMoneyHubProps> = ({
                 {/* Payment Button */}
                 <button 
                   onClick={handlePayment}
-                  disabled={isProcessing || !selectedProvider || !donationAmount}
+                  disabled={!selectedProvider || !donationAmount || parseFloat(donationAmount) <= 0}
                   className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center space-x-2"
                 >
                   <Smartphone className="w-5 h-5" />
                   <span>
-                    {isProcessing 
-                      ? 'Processing...' 
-                      : isOffline 
+                    {isOffline 
                         ? `Queue Payment via ${selectedProvider.name}`
                         : `Pay with ${selectedProvider.name}`
                     }
                   </span>
-                  {!isProcessing && <ArrowRight className="w-5 h-5" />}
+                  <ArrowRight className="w-5 h-5" />
                 </button>
 
                 {/* Offline Notice */}
@@ -274,7 +308,38 @@ export const MobileMoneyHub: React.FC<MobileMoneyHubProps> = ({
             </motion.div>
           )}
         </div>
+
+        {/* Payment Form Modal */}
+        {showPaymentForm && stripePromise && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="max-w-md w-full">
+              <PaymentForm
+                paymentData={paymentData}
+                onSuccess={handlePaymentSuccess}
+                onError={handlePaymentError}
+              />
+              <button
+                onClick={() => setShowPaymentForm(false)}
+                className="mt-4 w-full bg-gray-100 hover:bg-gray-200 text-gray-900 font-semibold py-3 px-4 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Success Modal */}
+        {paymentSuccess && (
+          <PaymentSuccess
+            sessionId={paymentSuccess.sessionId}
+            amount={paymentSuccess.amount}
+            projectTitle={paymentSuccess.projectTitle}
+            transactionHash={paymentSuccess.transactionHash}
+            onClose={() => setPaymentSuccess(null)}
+          />
+        )}
       </div>
-    </section>
+      </section>
+    </StripeProvider>
   );
 };
